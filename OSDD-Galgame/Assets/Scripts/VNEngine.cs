@@ -225,6 +225,8 @@ public class VNEngine : MonoBehaviour
         SetRoot(settingsMenuRoot, false);
         SetRoot(settingsGameRoot, false);
         SetRoot(endRoot, false);
+        if (settingsGameButton) settingsGameButton.gameObject.SetActive(false);
+        if (titleGameButton) titleGameButton.gameObject.SetActive(false);
         SetRoot(choiceRoot, false);
         SetRoot(holdRoot, false);
         SetRoot(dialogPanel.gameObject, false);
@@ -244,6 +246,8 @@ public class VNEngine : MonoBehaviour
         SetRoot(settingsMenuRoot, false);
         SetRoot(settingsGameRoot, false);
         SetRoot(endRoot, false);
+        if (settingsGameButton) settingsGameButton.gameObject.SetActive(true);
+        if (titleGameButton) titleGameButton.gameObject.SetActive(true);
         SetRoot(dialogPanel.gameObject, true);
         screen = ScreenMode.Game;
         ended = false;

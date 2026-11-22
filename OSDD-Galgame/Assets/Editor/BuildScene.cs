@@ -20,6 +20,9 @@ public static class BuildScene
         font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
         if (font == null) font = Resources.GetBuiltinResource<Font>("Arial.ttf");
 
+        // 清空当前场景，避免任何孤儿 UI 层残留
+        EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
+
         // 清理旧 Canvas / EventSystem，避免两个 VNEngine 叠在一起
         // 先删所有 Canvas / EventSystem，防止上一次生成残留第二套 UI 和第二个 VNEngine
         var oldCanvases = Object.FindObjectsOfType<Canvas>();
@@ -108,71 +111,75 @@ public static class BuildScene
         Stretch(vig);
 
         // —— 主菜单 ——
-        var mainMenu = NewPanel(go.transform, "MainMenuRoot", 60, new Color(0.06f, 0.07f, 0.09f, 0.55f));
+        var mainMenu = NewPanel(go.transform, "MainMenuRoot", 60, new Color(0.06f, 0.07f, 0.09f, 0.92f));
+        Stretch(mainMenu.GetComponent<RectTransform>());
         var mmTitle = NewText(mainMenu.transform, "Title", "飘", 120, TextAnchor.MiddleCenter,
-            new Vector2(0, 240), new Vector2(900, 200), new Color(1f, 0.98f, 0.93f, 0.98f));
+            new Vector2(0, 240), new Vector2(900, 200), new Color(1f, 0.98f, 0.93f, 1f));
         var mmSub = NewText(mainMenu.transform, "SubTitle", "一段关于解离的互动短篇", 34, TextAnchor.MiddleCenter,
-            new Vector2(0, 110), new Vector2(900, 70), new Color(0.95f, 0.95f, 0.95f, 0.9f));
+            new Vector2(0, 110), new Vector2(900, 70), new Color(1f, 1f, 1f, 1f));
         var startBtn = MakeMenuButton(mainMenu.transform, "BtnStart", "开始游戏", new Vector2(0, -20));
         var setMenuBtn = MakeMenuButton(mainMenu.transform, "BtnSettings", "设　置", new Vector2(0, -130));
         var quitMenuBtn = MakeMenuButton(mainMenu.transform, "BtnQuit", "退　出", new Vector2(0, -240));
         var mmHint = NewText(mainMenu.transform, "Hint", "点击对话或空格继续 · Esc 打开设置", 24, TextAnchor.LowerCenter,
-            new Vector2(0, 36), new Vector2(1000, 50), new Color(1f, 1f, 1f, 0.7f));
+            new Vector2(0, 36), new Vector2(1000, 50), new Color(1f, 1f, 1f, 0.95f));
         mmHint.rectTransform.anchorMin = mmHint.rectTransform.anchorMax = new Vector2(0.5f, 0);
 
         // —— 主菜单设置面板 ——
-        var settingsMenu = NewPanel(go.transform, "SettingsMenuRoot", 70, new Color(0.07f, 0.08f, 0.1f, 0.88f));
+        var settingsMenu = NewPanel(go.transform, "SettingsMenuRoot", 70, new Color(0.07f, 0.08f, 0.1f, 0.96f));
+        Stretch(settingsMenu.GetComponent<RectTransform>());
         NewText(settingsMenu.transform, "Header", "设　置", 56, TextAnchor.MiddleCenter,
-            new Vector2(0, 360), new Vector2(600, 100), Color.white);
+            new Vector2(0, 430), new Vector2(700, 110), Color.white);
         var sliders = new GameObject("Sliders", typeof(RectTransform));
         sliders.transform.SetParent(settingsMenu.transform, false);
         var srt = (RectTransform)sliders.transform;
         srt.anchorMin = srt.anchorMax = new Vector2(0.5f, 0.5f);
-        srt.sizeDelta = new Vector2(760, 520);
-        var bgm = MakeSlider(sliders.transform, "BGM", "音乐音量", 0.5f, -40);
-        var sfx = MakeSlider(sliders.transform, "SFX", "音效音量", 0.7f, -130);
-        var voice = MakeSlider(sliders.transform, "Voice", "语音音量", 0.7f, -220);
-        var speed = MakeSlider(sliders.transform, "TextSpeed", "文字速度", 1f, -310);
-        var uiScale = MakeSlider(sliders.transform, "UiScale", "界面大小", 1f, -385);
+        srt.sizeDelta = new Vector2(860, 700);
+        var bgm = MakeSlider(sliders.transform, "BGM", "音乐音量", 0.5f, 300);
+        var sfx = MakeSlider(sliders.transform, "SFX", "音效音量", 0.7f, 200);
+        var voice = MakeSlider(sliders.transform, "Voice", "语音音量", 0.7f, 100);
+        var speed = MakeSlider(sliders.transform, "TextSpeed", "文字速度", 1f, 0);
+        var uiScale = MakeSlider(sliders.transform, "UiScale", "界面大小", 1f, -100);
         uiScale.minValue = 0.7f;
         uiScale.maxValue = 1.3f;
         var fit = MakeDropdown(sliders.transform, "ScreenFit", "画面适配",
-            new[] { "按宽度", "按高度", "完整显示" }, 1, -465);
+            new[] { "按宽度", "按高度", "完整显示" }, 1, -200);
         var res = MakeDropdown(sliders.transform, "Resolution", "分辨率",
-            new[] { "1920×1080", "1280×720", "1600×900" }, 0, -535);
-        var fs = MakeToggle(sliders.transform, "Fullscreen", "全屏", true, new Vector2(270, -535));
-        var resetBtn = MakeSmallButton(settingsMenu.transform, "BtnReset", "恢复默认", new Vector2(-300, -440));
-        var backMenu = MakeMenuButton(settingsMenu.transform, "BtnBack", "返　回", new Vector2(0, -440));
+            new[] { "1920×1080", "1280×720", "1600×900" }, 0, -300);
+        var fs = MakeToggle(sliders.transform, "Fullscreen", "全屏", true, new Vector2(300, -300));
+        var resetBtn = MakeSmallButton(settingsMenu.transform, "BtnReset", "恢复默认", new Vector2(-190, -450));
+        var backMenu = MakeMenuButton(settingsMenu.transform, "BtnBack", "返　回", new Vector2(0, -450));
 
         // —— 游戏内设置面板 ——
-        var settingsGamePanel = NewPanel(go.transform, "SettingsGameRoot", 71, new Color(0.07f, 0.08f, 0.1f, 0.88f));
+        var settingsGamePanel = NewPanel(go.transform, "SettingsGameRoot", 71, new Color(0.07f, 0.08f, 0.1f, 0.96f));
+        Stretch(settingsGamePanel.GetComponent<RectTransform>());
         NewText(settingsGamePanel.transform, "Header", "设　置", 56, TextAnchor.MiddleCenter,
-            new Vector2(0, 360), new Vector2(600, 100), Color.white);
+            new Vector2(0, 430), new Vector2(700, 110), Color.white);
         var sgSliders = new GameObject("Sliders", typeof(RectTransform));
         sgSliders.transform.SetParent(settingsGamePanel.transform, false);
         var sgrt = (RectTransform)sgSliders.transform;
         sgrt.anchorMin = sgrt.anchorMax = new Vector2(0.5f, 0.5f);
-        sgrt.sizeDelta = new Vector2(760, 520);
-        MakeSlider(sgSliders.transform, "BGM", "音乐音量", 0.5f, -40);
-        MakeSlider(sgSliders.transform, "SFX", "音效音量", 0.7f, -130);
-        MakeSlider(sgSliders.transform, "Voice", "语音音量", 0.7f, -220);
-        MakeSlider(sgSliders.transform, "TextSpeed", "文字速度", 1f, -310);
-        var sgUiScale = MakeSlider(sgSliders.transform, "UiScale", "界面大小", 1f, -385);
+        sgrt.sizeDelta = new Vector2(860, 700);
+        MakeSlider(sgSliders.transform, "BGM", "音乐音量", 0.5f, 300);
+        MakeSlider(sgSliders.transform, "SFX", "音效音量", 0.7f, 200);
+        MakeSlider(sgSliders.transform, "Voice", "语音音量", 0.7f, 100);
+        MakeSlider(sgSliders.transform, "TextSpeed", "文字速度", 1f, 0);
+        var sgUiScale = MakeSlider(sgSliders.transform, "UiScale", "界面大小", 1f, -100);
         sgUiScale.minValue = 0.7f;
         sgUiScale.maxValue = 1.3f;
         MakeDropdown(sgSliders.transform, "ScreenFit", "画面适配",
-            new[] { "按宽度", "按高度", "完整显示" }, 1, -465);
+            new[] { "按宽度", "按高度", "完整显示" }, 1, -200);
         MakeDropdown(sgSliders.transform, "Resolution", "分辨率",
-            new[] { "1920×1080", "1280×720", "1600×900" }, 0, -535);
-        MakeToggle(sgSliders.transform, "Fullscreen", "全屏", true, new Vector2(270, -535));
-        var backGame = MakeMenuButton(settingsGamePanel.transform, "BtnBack", "返　回", new Vector2(0, -440));
+            new[] { "1920×1080", "1280×720", "1600×900" }, 0, -300);
+        MakeToggle(sgSliders.transform, "Fullscreen", "全屏", true, new Vector2(300, -300));
+        var backGame = MakeMenuButton(settingsGamePanel.transform, "BtnBack", "返　回", new Vector2(0, -450));
 
         // —— 结尾 UI ——
-        var endRoot = NewPanel(go.transform, "EndRoot", 80, new Color(0.05f, 0.06f, 0.08f, 0.6f));
+        var endRoot = NewPanel(go.transform, "EndRoot", 80, new Color(0.05f, 0.06f, 0.08f, 0.92f));
+        Stretch(endRoot.GetComponent<RectTransform>());
         NewText(endRoot.transform, "TheEnd", "— 完 —", 100, TextAnchor.MiddleCenter,
-            new Vector2(0, 160), new Vector2(800, 180), new Color(1f, 0.98f, 0.93f, 0.98f));
+            new Vector2(0, 160), new Vector2(800, 180), new Color(1f, 0.98f, 0.93f, 1f));
         NewText(endRoot.transform, "Thanks", "谢谢你陪她走到这里。", 36, TextAnchor.MiddleCenter,
-            new Vector2(0, 20), new Vector2(900, 80), new Color(1f, 1f, 1f, 0.9f));
+            new Vector2(0, 20), new Vector2(900, 80), new Color(1f, 1f, 1f, 1f));
         var endTitle = MakeMenuButton(endRoot.transform, "BtnTitle", "返回主界面", new Vector2(-180, -190));
         var endQuit = MakeMenuButton(endRoot.transform, "BtnQuit", "退出游戏", new Vector2(180, -190));
 
