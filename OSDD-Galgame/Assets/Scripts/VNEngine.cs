@@ -1,22 +1,26 @@
+using System;
 using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
+using UnityEngine.EventSystems;
 using UnityEngine.UI;
 
 /// <summary>
 /// 轻量视觉小说引擎：《飘》
 /// 支持命令：bg / float / time / title / label / jump / choice / hold / end
 /// 对话行格式：说话人：文本 ；无冒号行为旁白
+/// 新增：主菜单、设置、回主菜单、退出、点击任意位置继续（UI/选项消费点击，避免误继续）
 /// </summary>
 public class VNEngine : MonoBehaviour
 {
-    [Header("UI 引用")]
+    [Header("场景 UI 引用")]
     public Image bgNormal;
-    public Image bgGray;          // 灰度副本，透明度=飘离程度
-    public Image fog;             // 雾化层
-    public Image vignette;        // 暗角
+    public Image bgGray;
+    public Image fog;
+    public Image vignette;
     public Text timeText;
     public Text chapterTitle;
+    public Image dialogPanel;
     public Text speakerText;
     public Text bodyText;
     public Text hintText;
@@ -26,33 +30,219 @@ public class VNEngine : MonoBehaviour
     public Image holdRing;
     public Text holdLabel;
 
+    [Header("主菜单")]
+    public GameObject mainMenuRoot;
+    public Button startButton;
+    public Button settingsMenuButton;
+    public Button quitMenuButton;
+    public Button backFromSettingsButton;
+    public GameObject settingsMenuRoot;
+    public Slider bgmSlider;
+    public Slider sfxSlider;
+    public Slider voiceVolumeSlider;
+    public Slider textSpeedSlider;
+    public Dropdown resolutionDropdown;
+    public Toggle fullscreenToggle;
+    public Button resetButton;
+
+    [Header("游戏内")]
+    public Button settingsGameButton;
+    public Button titleGameButton;
+    public GameObject settingsGameRoot;
+    public Button closeGameSettingsButton;
+    public GameObject endRoot;
+    public Button endTitleButton;
+    public Button endQuitButton;
+
     class Cmd { public string op; public string arg; }
     readonly List<Cmd> cmds = new List<Cmd>();
     int pc;
     const string Keywords = "bg float time title label jump choice hold end";
 
+    enum ScreenMode { MainMenu, SettingsMenu, Game, GameSettings, Ending }
+    ScreenMode screen = ScreenMode.MainMenu;
+    ScreenMode settingsReturn;
+
     float floatLevel, floatTarget;
     float wobbleT;
-    bool typing, waiting, holding;
+    bool typing, waiting, holding, ended;
     float holdProgress;
     string fullText = "";
     Coroutine typer;
     Texture2D grayTex;
     Color bodyBase;
     float bodyAlphaBase;
+    bool consumedFrameClick;
+    bool hadChoiceThisFrame;
+    bool panelBaseInitialized;
+    readonly List<RaycastResult> raycastResults = new List<RaycastResult>();
+    Color panelWarmRuntime;
+    Color panelColdRuntime;
+
+    static readonly Color PanelWarm = new Color(1f, 0.99f, 0.96f, 0.8f);
+    static readonly Color PanelCold = new Color(0.84f, 0.88f, 0.94f, 0.88f);
+    static readonly Color PanelEdge = new Color(0.62f, 0.68f, 0.76f, 0.95f);
+
+    void Awake()
+    {
+        LoadSettings();
+    }
 
     void Start()
     {
         Parse();
         bodyBase = bodyText.color;
         bodyAlphaBase = bodyBase.a;
+        if (dialogPanel)
+        {
+            panelWarmRuntime = dialogPanel.color;
+            panelColdRuntime = new Color(
+                Mathf.Clamp01(panelWarmRuntime.r * 0.84f + 0.05f),
+                Mathf.Clamp01(panelWarmRuntime.g * 0.89f + 0.06f),
+                Mathf.Clamp01(panelWarmRuntime.b * 0.97f + 0.08f),
+                Mathf.Clamp01(panelWarmRuntime.a + 0.08f));
+        }
+        panelBaseInitialized = true;
         MakeRadialSprites();
+        BindUI();
+        ApplySettings();
+        ShowMainMenu();
+    }
+
+    void BindUI()
+    {
+        if (startButton) startButton.onClick.AddListener(StartGame);
+        if (settingsMenuButton) settingsMenuButton.onClick.AddListener(OpenSettingsFromMenu);
+        if (quitMenuButton) quitMenuButton.onClick.AddListener(QuitGame);
+        if (backFromSettingsButton) backFromSettingsButton.onClick.AddListener(CloseSettings);
+        if (settingsGameButton) settingsGameButton.onClick.AddListener(OpenSettingsFromGame);
+        if (titleGameButton) titleGameButton.onClick.AddListener(ShowMainMenu);
+        if (closeGameSettingsButton) closeGameSettingsButton.onClick.AddListener(CloseSettings);
+        if (endTitleButton) endTitleButton.onClick.AddListener(ShowMainMenu);
+        if (endQuitButton) endQuitButton.onClick.AddListener(QuitGame);
+        if (resetButton) resetButton.onClick.AddListener(ResetSettings);
+
+        if (bgmSlider) bgmSlider.onValueChanged.AddListener(v => { PlayerPrefs.SetFloat("BGM", v); ApplySettings(); });
+        if (sfxSlider) sfxSlider.onValueChanged.AddListener(v => { PlayerPrefs.SetFloat("SFX", v); ApplySettings(); });
+        if (voiceVolumeSlider) voiceVolumeSlider.onValueChanged.AddListener(v => { PlayerPrefs.SetFloat("Voice", v); ApplySettings(); });
+        if (textSpeedSlider) textSpeedSlider.onValueChanged.AddListener(v => { PlayerPrefs.SetFloat("TextSpeed", v); ApplySettings(); });
+        if (fullscreenToggle) fullscreenToggle.onValueChanged.AddListener(v => { PlayerPrefs.SetInt("Fullscreen", v ? 1 : 0); ApplySettings(); });
+        if (resolutionDropdown) resolutionDropdown.onValueChanged.AddListener(v => { PlayerPrefs.SetInt("Resolution", v); ApplySettings(); });
+    }
+
+    void LoadSettings()
+    {
+        if (!PlayerPrefs.HasKey("BGM")) PlayerPrefs.SetFloat("BGM", 0.5f);
+        if (!PlayerPrefs.HasKey("SFX")) PlayerPrefs.SetFloat("SFX", 0.7f);
+        if (!PlayerPrefs.HasKey("Voice")) PlayerPrefs.SetFloat("Voice", 0.7f);
+        if (!PlayerPrefs.HasKey("TextSpeed")) PlayerPrefs.SetFloat("TextSpeed", 1f);
+        if (!PlayerPrefs.HasKey("Fullscreen")) PlayerPrefs.SetInt("Fullscreen", 1);
+        if (!PlayerPrefs.HasKey("Resolution")) PlayerPrefs.SetInt("Resolution", 0);
+        PlayerPrefs.Save();
+    }
+
+    void ResetSettings()
+    {
+        PlayerPrefs.SetFloat("BGM", 0.5f);
+        PlayerPrefs.SetFloat("SFX", 0.7f);
+        PlayerPrefs.SetFloat("Voice", 0.7f);
+        PlayerPrefs.SetFloat("TextSpeed", 1f);
+        PlayerPrefs.SetInt("Fullscreen", 1);
+        PlayerPrefs.SetInt("Resolution", 0);
+        PlayerPrefs.Save();
+        ApplySettings();
+    }
+
+    void ApplySettings()
+    {
+        if (bgmSlider) bgmSlider.value = PlayerPrefs.GetFloat("BGM");
+        if (sfxSlider) sfxSlider.value = PlayerPrefs.GetFloat("SFX");
+        if (voiceVolumeSlider) voiceVolumeSlider.value = PlayerPrefs.GetFloat("Voice");
+        if (textSpeedSlider) textSpeedSlider.value = PlayerPrefs.GetFloat("TextSpeed");
+        if (fullscreenToggle) fullscreenToggle.isOn = PlayerPrefs.GetInt("Fullscreen") == 1;
+        if (resolutionDropdown) resolutionDropdown.value = Mathf.Clamp(PlayerPrefs.GetInt("Resolution"), 0, resolutionDropdown.options.Count - 1);
+
+        bool fs = PlayerPrefs.GetInt("Fullscreen") == 1;
+        int r = PlayerPrefs.GetInt("Resolution");
+        if (r == 1) Screen.SetResolution(1280, 720, fs);
+        else if (r == 2) Screen.SetResolution(1600, 900, fs);
+        else Screen.SetResolution(1920, 1080, fs);
+    }
+
+    // ---------- 界面切换 ----------
+    void SetRoot(GameObject root, bool on) { if (root) root.SetActive(on); }
+
+    void ShowMainMenu()
+    {
+        screen = ScreenMode.MainMenu;
+        StopAllCoroutines();
+        typer = null;
+        typing = waiting = holding = ended = false;
+        floatLevel = floatTarget = 0f;
+        ApplyFloat();
+        SetRoot(mainMenuRoot, true);
+        SetRoot(settingsMenuRoot, false);
+        SetRoot(settingsGameRoot, false);
+        SetRoot(endRoot, false);
+        SetRoot(choiceRoot, false);
+        SetRoot(holdRoot, false);
+        SetRoot(dialogPanel.gameObject, false);
         timeText.gameObject.SetActive(false);
         chapterTitle.gameObject.SetActive(false);
-        hintText.gameObject.SetActive(false);
-        choiceRoot.SetActive(false);
-        holdRoot.SetActive(false);
+        if (bgNormal) bgNormal.sprite = Resources.Load<Sprite>("Art/bg_classroom");
+        if (bgGray) { bgGray.sprite = null; bgGray.color = Color.clear; }
+        if (fog) fog.color = Color.clear;
+        if (vignette) vignette.color = Color.clear;
+        if (bodyText) bodyText.text = "";
+        if (speakerText) speakerText.text = "";
+    }
+
+    public void StartGame()
+    {
+        SetRoot(mainMenuRoot, false);
+        SetRoot(settingsMenuRoot, false);
+        SetRoot(settingsGameRoot, false);
+        SetRoot(endRoot, false);
+        SetRoot(dialogPanel.gameObject, true);
+        screen = ScreenMode.Game;
+        ended = false;
+        pc = 0;
+        cmds.Clear();
+        Parse();
+        SetBg("classroom");
         Next();
+    }
+
+    void OpenSettingsFromMenu()
+    {
+        settingsReturn = ScreenMode.MainMenu;
+        SetRoot(mainMenuRoot, false);
+        SetRoot(settingsMenuRoot, true);
+        screen = ScreenMode.SettingsMenu;
+    }
+
+    void OpenSettingsFromGame()
+    {
+        settingsReturn = ScreenMode.Game;
+        SetRoot(settingsGameRoot, true);
+        screen = ScreenMode.GameSettings;
+    }
+
+    void CloseSettings()
+    {
+        SetRoot(settingsMenuRoot, false);
+        SetRoot(settingsGameRoot, false);
+        screen = settingsReturn;
+        if (screen == ScreenMode.MainMenu) SetRoot(mainMenuRoot, true);
+    }
+
+    public void QuitGame()
+    {
+#if UNITY_EDITOR
+        UnityEditor.EditorApplication.isPlaying = false;
+#else
+        Application.Quit();
+#endif
     }
 
     // ---------- 剧本解析 ----------
@@ -109,10 +299,7 @@ public class VNEngine : MonoBehaviour
                 case "jump": pc = IndexOfLabel(c.arg); break;
                 case "choice": ShowChoices(c.arg); return;
                 case "hold": ShowHold(c.arg); return;
-                case "end":
-                    hintText.gameObject.SetActive(true);
-                    hintText.text = "— 完 —";
-                    return;
+                case "end": ShowEnd(); return;
                 case "_say":
                     {
                         string[] p = c.arg.Split('\u0001');
@@ -124,6 +311,20 @@ public class VNEngine : MonoBehaviour
                     return;
             }
         }
+        ShowEnd();
+    }
+
+    void ShowEnd()
+    {
+        ended = true;
+        typing = waiting = holding = false;
+        hintText.gameObject.SetActive(true);
+        hintText.text = "— 完 —";
+        SetRoot(choiceRoot, false);
+        SetRoot(holdRoot, false);
+        SetRoot(dialogPanel.gameObject, false);
+        SetRoot(endRoot, true);
+        screen = ScreenMode.Ending;
     }
 
     // ---------- 背景与效果 ----------
@@ -131,7 +332,7 @@ public class VNEngine : MonoBehaviour
     {
         Texture2D tex = Resources.Load<Texture2D>("Art/" + name);
         if (tex == null) return;
-        bgNormal.sprite = Sprite.Create(tex, new Rect(0, 0, tex.width, tex.height), new Vector2(0.5f, 0.5f), 100f);
+        if (bgNormal) bgNormal.sprite = Sprite.Create(tex, new Rect(0, 0, tex.width, tex.height), new Vector2(0.5f, 0.5f), 100f);
         MakeGray(tex);
     }
 
@@ -147,7 +348,7 @@ public class VNEngine : MonoBehaviour
         grayTex = new Texture2D(src.width, src.height, TextureFormat.RGBA32, false);
         grayTex.SetPixels(px);
         grayTex.Apply();
-        bgGray.sprite = Sprite.Create(grayTex, new Rect(0, 0, src.width, src.height), new Vector2(0.5f, 0.5f), 100f);
+        if (bgGray) bgGray.sprite = Sprite.Create(grayTex, new Rect(0, 0, src.width, src.height), new Vector2(0.5f, 0.5f), 100f);
     }
 
     Sprite RadialSprite(Color col, float innerA, float edgeA)
@@ -160,8 +361,7 @@ public class VNEngine : MonoBehaviour
         for (int y = 0; y < n; y++)
             for (int x = 0; x < n; x++)
             {
-                float t = Vector2.Distance(new Vector2(x, y), c) / (n * 0.5f);
-                t = Mathf.Clamp01(t);
+                float t = Mathf.Clamp01(Vector2.Distance(new Vector2(x, y), c) / (n * 0.5f));
                 float a = Mathf.Lerp(innerA, edgeA, t * t);
                 px[y * n + x] = new Color32(r, g, b, (byte)(a * 255f));
             }
@@ -172,8 +372,8 @@ public class VNEngine : MonoBehaviour
 
     void MakeRadialSprites()
     {
-        fog.sprite = RadialSprite(Color.white, 0.45f, 0.4f);
-        vignette.sprite = RadialSprite(Color.black, 0f, 0.5f);
+        if (fog) fog.sprite = RadialSprite(Color.white, 0.45f, 0.4f);
+        if (vignette) vignette.sprite = RadialSprite(Color.black, 0f, 0.5f);
     }
 
     void ApplyFloat()
@@ -187,9 +387,29 @@ public class VNEngine : MonoBehaviour
             Color c = fog.color; c.a = Mathf.Clamp01(floatLevel * 0.6f); fog.color = c;
         }
         wobbleT += Time.deltaTime * (1f + floatLevel * 3f);
-        float a = bodyAlphaBase * (1f - floatLevel * 0.25f)
-                  - Mathf.Max(0f, Mathf.Sin(wobbleT * 2.1f)) * 0.12f * floatLevel;
+        float a = bodyAlphaBase * (1f - floatLevel * 0.2f)
+                  - Mathf.Max(0f, Mathf.Sin(wobbleT * 2.1f)) * 0.09f * floatLevel;
         bodyText.color = new Color(bodyBase.r, bodyBase.g, bodyBase.b, Mathf.Clamp01(a));
+        if (dialogPanel)
+        {
+            Color target = floatLevel > 0.35f ? panelColdRuntime : panelWarmRuntime;
+            if (!panelBaseInitialized)
+            {
+                panelWarmRuntime = dialogPanel.color;
+                panelColdRuntime = PanelCold;
+                panelBaseInitialized = true;
+            }
+            dialogPanel.color = Color.Lerp(panelWarmRuntime, target, Mathf.Clamp01(floatLevel));
+            var outline = dialogPanel.GetComponent<Outline>();
+            if (outline == null)
+            {
+                outline = dialogPanel.gameObject.AddComponent<Outline>();
+                outline.effectDistance = new Vector2(2f, -2f);
+            }
+            Color ec = PanelEdge;
+            ec.a = Mathf.Clamp01(floatLevel * 1.2f) * 0.95f;
+            outline.effectColor = ec;
+        }
     }
 
     // ---------- 对话 ----------
@@ -207,14 +427,15 @@ public class VNEngine : MonoBehaviour
 
     IEnumerator TypeLine(string text)
     {
-        float delay = 0.035f * (1f + floatLevel * 2.2f);
-        System.Text.StringBuilder sb = new System.Text.StringBuilder();
+        float speed = Mathf.Max(0.25f, PlayerPrefs.GetFloat("TextSpeed", 1f));
+        float delay = 0.035f * (1f + floatLevel * 2.2f) / speed;
+        var sb = new System.Text.StringBuilder();
         foreach (char ch in text)
         {
             sb.Append(ch);
             bodyText.text = sb.ToString();
             float d = delay;
-            if ("，。、？！…—".IndexOf(ch) >= 0) d += 0.12f;
+            if ("，。、？！…—".IndexOf(ch) >= 0) d += 0.12f / speed;
             yield return new WaitForSeconds(d);
         }
         typing = false;
@@ -275,6 +496,7 @@ public class VNEngine : MonoBehaviour
         foreach (Transform t in choiceRoot.transform) Destroy(t.gameObject);
         string[] opts = spec.Split('|');
         bool disabled = floatLevel > 0.55f;
+        hadChoiceThisFrame = true;
         foreach (string o in opts)
         {
             int arrow = o.IndexOf("->");
@@ -297,7 +519,7 @@ public class VNEngine : MonoBehaviour
     void ShowHold(string text)
     {
         holdRoot.SetActive(true);
-        holdLabel.text = text + "\n（按住鼠标，直到圆环闭合）";
+        holdLabel.text = text + "\n（按住鼠标左键，直到圆环闭合）";
         holding = true;
         holdProgress = 0f;
         holdRing.fillAmount = 0f;
@@ -319,23 +541,60 @@ public class VNEngine : MonoBehaviour
     }
 
     // ---------- 输入 ----------
+    bool OverUI()
+    {
+        if (EventSystem.current == null) return false;
+        var ped = new PointerEventData(EventSystem.current) { position = Input.mousePosition };
+        raycastResults.Clear();
+        EventSystem.current.RaycastAll(ped, raycastResults);
+        foreach (var r in raycastResults)
+        {
+            if (r.gameObject == null) continue;
+            string n = r.gameObject.name;
+            if (n == "BgNormal" || n == "BgGray" || n == "Fog" || n == "Vignette") continue;
+            if (n == "DialogPanel" || n == "Speaker" || n == "Body" || n == "Hint") continue;
+            return true;
+        }
+        return false;
+    }
+
     void Update()
     {
+        consumedFrameClick = false;
+        hadChoiceThisFrame = false;
         floatLevel = Mathf.MoveTowards(floatLevel, floatTarget, Time.deltaTime * 0.3f);
         ApplyFloat();
+
+        if (Input.GetMouseButtonDown(0) && OverUI() && choiceRoot && !choiceRoot.activeSelf)
+            consumedFrameClick = true;
+
+        if (screen == ScreenMode.Ending)
+        {
+            if (Input.GetKeyDown(KeyCode.Escape)) ShowMainMenu();
+            return;
+        }
+        if (screen == ScreenMode.GameSettings)
+        {
+            if (Input.GetKeyDown(KeyCode.Escape)) CloseSettings();
+            return;
+        }
+        if (screen != ScreenMode.Game) return;
 
         if (holding)
         {
             UpdateHold();
             return;
         }
+        if (choiceRoot && choiceRoot.activeSelf) return; // 选项界面只能点按钮，不能"继续"
 
-        bool click = Input.GetMouseButtonDown(0)
+        bool click = (Input.GetMouseButtonDown(0) && !consumedFrameClick)
                      || Input.GetKeyDown(KeyCode.Space)
                      || Input.GetKeyDown(KeyCode.Return);
+        if (Input.GetKeyDown(KeyCode.Escape)) { OpenSettingsFromGame(); return; }
         if (!click) return;
 
         if (typing) CompleteLine();
         else if (waiting) Next();
     }
+
 }
