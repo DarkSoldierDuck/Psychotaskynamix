@@ -20,6 +20,13 @@ public static class BuildScene
         font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
         if (font == null) font = Resources.GetBuiltinResource<Font>("Arial.ttf");
 
+        // 清理旧 Canvas / EventSystem，避免两个 VNEngine 叠在一起
+        // 先删所有 Canvas / EventSystem，防止上一次生成残留第二套 UI 和第二个 VNEngine
+        var oldCanvases = Object.FindObjectsOfType<Canvas>();
+        foreach (var c in oldCanvases) Object.DestroyImmediate(c.gameObject);
+        var oldEventSystems = Object.FindObjectsOfType<UnityEngine.EventSystems.EventSystem>();
+        foreach (var es in oldEventSystems) Object.DestroyImmediate(es.gameObject);
+
         var go = new GameObject("Canvas");
         var canvas = go.AddComponent<Canvas>();
         canvas.renderMode = RenderMode.ScreenSpaceOverlay;
@@ -27,12 +34,9 @@ public static class BuildScene
         scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
         scaler.referenceResolution = new Vector2(1920, 1080);
         go.AddComponent<GraphicRaycaster>();
-        if (Object.FindObjectOfType<UnityEngine.EventSystems.EventSystem>() == null)
-        {
-            new GameObject("EventSystem",
-                typeof(UnityEngine.EventSystems.EventSystem),
-                typeof(UnityEngine.EventSystems.StandaloneInputModule));
-        }
+        new GameObject("EventSystem",
+            typeof(UnityEngine.EventSystems.EventSystem),
+            typeof(UnityEngine.EventSystems.StandaloneInputModule));
 
         // —— 背景：正常 + 灰度 + 雾 + 暗角 ——
         var bgN = NewImg(go.transform, "BgNormal", 0, Color.white);
@@ -129,10 +133,15 @@ public static class BuildScene
         var sfx = MakeSlider(sliders.transform, "SFX", "音效音量", 0.7f, -130);
         var voice = MakeSlider(sliders.transform, "Voice", "语音音量", 0.7f, -220);
         var speed = MakeSlider(sliders.transform, "TextSpeed", "文字速度", 1f, -310);
+        var uiScale = MakeSlider(sliders.transform, "UiScale", "界面大小", 1f, -385);
+        uiScale.minValue = 0.7f;
+        uiScale.maxValue = 1.3f;
+        var fit = MakeDropdown(sliders.transform, "ScreenFit", "画面适配",
+            new[] { "按宽度", "按高度", "完整显示" }, 1, -465);
         var res = MakeDropdown(sliders.transform, "Resolution", "分辨率",
-            new[] { "1920×1080", "1280×720", "1600×900" }, 0, -400);
-        var fs = MakeToggle(sliders.transform, "Fullscreen", "全屏", true, new Vector2(270, -400));
-        var resetBtn = MakeSmallButton(settingsMenu.transform, "BtnReset", "恢复默认", new Vector2(-300, -410));
+            new[] { "1920×1080", "1280×720", "1600×900" }, 0, -535);
+        var fs = MakeToggle(sliders.transform, "Fullscreen", "全屏", true, new Vector2(270, -535));
+        var resetBtn = MakeSmallButton(settingsMenu.transform, "BtnReset", "恢复默认", new Vector2(-300, -440));
         var backMenu = MakeMenuButton(settingsMenu.transform, "BtnBack", "返　回", new Vector2(0, -440));
 
         // —— 游戏内设置面板 ——
@@ -148,9 +157,14 @@ public static class BuildScene
         MakeSlider(sgSliders.transform, "SFX", "音效音量", 0.7f, -130);
         MakeSlider(sgSliders.transform, "Voice", "语音音量", 0.7f, -220);
         MakeSlider(sgSliders.transform, "TextSpeed", "文字速度", 1f, -310);
+        var sgUiScale = MakeSlider(sgSliders.transform, "UiScale", "界面大小", 1f, -385);
+        sgUiScale.minValue = 0.7f;
+        sgUiScale.maxValue = 1.3f;
+        MakeDropdown(sgSliders.transform, "ScreenFit", "画面适配",
+            new[] { "按宽度", "按高度", "完整显示" }, 1, -465);
         MakeDropdown(sgSliders.transform, "Resolution", "分辨率",
-            new[] { "1920×1080", "1280×720", "1600×900" }, 0, -400);
-        MakeToggle(sgSliders.transform, "Fullscreen", "全屏", true, new Vector2(270, -400));
+            new[] { "1920×1080", "1280×720", "1600×900" }, 0, -535);
+        MakeToggle(sgSliders.transform, "Fullscreen", "全屏", true, new Vector2(270, -535));
         var backGame = MakeMenuButton(settingsGamePanel.transform, "BtnBack", "返　回", new Vector2(0, -440));
 
         // —— 结尾 UI ——
@@ -189,7 +203,10 @@ public static class BuildScene
         eng.sfxSlider = sfx;
         eng.voiceVolumeSlider = voice;
         eng.textSpeedSlider = speed;
+        eng.uiScaleSlider = uiScale;
+        eng.screenFitDropdown = fit;
         eng.resolutionDropdown = res;
+        eng.canvasScaler = go.GetComponent<CanvasScaler>();
         eng.fullscreenToggle = fs;
         eng.resetButton = resetBtn;
         eng.settingsGameButton = settingsGame;

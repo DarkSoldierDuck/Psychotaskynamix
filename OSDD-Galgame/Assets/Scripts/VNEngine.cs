@@ -42,8 +42,11 @@ public class VNEngine : MonoBehaviour
     public Slider voiceVolumeSlider;
     public Slider textSpeedSlider;
     public Dropdown resolutionDropdown;
+    public Slider uiScaleSlider;
+    public Dropdown screenFitDropdown;
     public Toggle fullscreenToggle;
     public Button resetButton;
+    public CanvasScaler canvasScaler;
 
     [Header("游戏内")]
     public Button settingsGameButton;
@@ -90,6 +93,24 @@ public class VNEngine : MonoBehaviour
 
     void Start()
     {
+        // 兼容旧场景：没有主菜单/新 UI 时直接进入游戏，不让空引用卡住
+        if (mainMenuRoot == null || startButton == null || dialogPanel == null
+            || bodyText == null || hintText == null)
+        {
+            Debug.LogWarning("[VN] 检测到旧版场景，直接启动游戏。请执行 VN→1.生成场景 以启用主菜单和设置。");
+            Parse();
+            bodyBase = bodyText ? bodyText.color : Color.black;
+            bodyAlphaBase = bodyBase.a;
+            MakeRadialSprites();
+            ApplySettings();
+            screen = ScreenMode.Game;
+            SetRoot(choiceRoot, false);
+            SetRoot(holdRoot, false);
+            SetBg("classroom");
+            Next();
+            return;
+        }
+
         Parse();
         bodyBase = bodyText.color;
         bodyAlphaBase = bodyBase.a;
@@ -126,6 +147,8 @@ public class VNEngine : MonoBehaviour
         if (sfxSlider) sfxSlider.onValueChanged.AddListener(v => { PlayerPrefs.SetFloat("SFX", v); ApplySettings(); });
         if (voiceVolumeSlider) voiceVolumeSlider.onValueChanged.AddListener(v => { PlayerPrefs.SetFloat("Voice", v); ApplySettings(); });
         if (textSpeedSlider) textSpeedSlider.onValueChanged.AddListener(v => { PlayerPrefs.SetFloat("TextSpeed", v); ApplySettings(); });
+        if (uiScaleSlider) uiScaleSlider.onValueChanged.AddListener(v => { PlayerPrefs.SetFloat("UiScale", v); ApplySettings(); });
+        if (screenFitDropdown) screenFitDropdown.onValueChanged.AddListener(v => { PlayerPrefs.SetInt("ScreenFit", v); ApplySettings(); });
         if (fullscreenToggle) fullscreenToggle.onValueChanged.AddListener(v => { PlayerPrefs.SetInt("Fullscreen", v ? 1 : 0); ApplySettings(); });
         if (resolutionDropdown) resolutionDropdown.onValueChanged.AddListener(v => { PlayerPrefs.SetInt("Resolution", v); ApplySettings(); });
     }
@@ -136,6 +159,8 @@ public class VNEngine : MonoBehaviour
         if (!PlayerPrefs.HasKey("SFX")) PlayerPrefs.SetFloat("SFX", 0.7f);
         if (!PlayerPrefs.HasKey("Voice")) PlayerPrefs.SetFloat("Voice", 0.7f);
         if (!PlayerPrefs.HasKey("TextSpeed")) PlayerPrefs.SetFloat("TextSpeed", 1f);
+        if (!PlayerPrefs.HasKey("UiScale")) PlayerPrefs.SetFloat("UiScale", 1f);
+        if (!PlayerPrefs.HasKey("ScreenFit")) PlayerPrefs.SetInt("ScreenFit", 1);
         if (!PlayerPrefs.HasKey("Fullscreen")) PlayerPrefs.SetInt("Fullscreen", 1);
         if (!PlayerPrefs.HasKey("Resolution")) PlayerPrefs.SetInt("Resolution", 0);
         PlayerPrefs.Save();
@@ -147,6 +172,8 @@ public class VNEngine : MonoBehaviour
         PlayerPrefs.SetFloat("SFX", 0.7f);
         PlayerPrefs.SetFloat("Voice", 0.7f);
         PlayerPrefs.SetFloat("TextSpeed", 1f);
+        PlayerPrefs.SetFloat("UiScale", 1f);
+        PlayerPrefs.SetInt("ScreenFit", 1);
         PlayerPrefs.SetInt("Fullscreen", 1);
         PlayerPrefs.SetInt("Resolution", 0);
         PlayerPrefs.Save();
@@ -159,8 +186,22 @@ public class VNEngine : MonoBehaviour
         if (sfxSlider) sfxSlider.value = PlayerPrefs.GetFloat("SFX");
         if (voiceVolumeSlider) voiceVolumeSlider.value = PlayerPrefs.GetFloat("Voice");
         if (textSpeedSlider) textSpeedSlider.value = PlayerPrefs.GetFloat("TextSpeed");
+        if (uiScaleSlider) uiScaleSlider.value = PlayerPrefs.GetFloat("UiScale");
+        if (screenFitDropdown) screenFitDropdown.value = Mathf.Clamp(PlayerPrefs.GetInt("ScreenFit"), 0, screenFitDropdown.options.Count - 1);
         if (fullscreenToggle) fullscreenToggle.isOn = PlayerPrefs.GetInt("Fullscreen") == 1;
         if (resolutionDropdown) resolutionDropdown.value = Mathf.Clamp(PlayerPrefs.GetInt("Resolution"), 0, resolutionDropdown.options.Count - 1);
+
+        if (canvasScaler == null) canvasScaler = FindObjectOfType<CanvasScaler>();
+        if (canvasScaler)
+        {
+            canvasScaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
+            canvasScaler.referenceResolution = new Vector2(1920, 1080);
+            int fit = PlayerPrefs.GetInt("ScreenFit");
+            canvasScaler.screenMatchMode = fit == 2 ? CanvasScaler.ScreenMatchMode.Expand
+                                                   : CanvasScaler.ScreenMatchMode.Shrink;
+            if (fit <= 1) canvasScaler.matchWidthOrHeight = fit == 0 ? 0f : 1f;
+            canvasScaler.scaleFactor = PlayerPrefs.GetFloat("UiScale");
+        }
 
         bool fs = PlayerPrefs.GetInt("Fullscreen") == 1;
         int r = PlayerPrefs.GetInt("Resolution");
@@ -187,8 +228,8 @@ public class VNEngine : MonoBehaviour
         SetRoot(choiceRoot, false);
         SetRoot(holdRoot, false);
         SetRoot(dialogPanel.gameObject, false);
-        timeText.gameObject.SetActive(false);
-        chapterTitle.gameObject.SetActive(false);
+        if (timeText) timeText.gameObject.SetActive(false);
+        if (chapterTitle) chapterTitle.gameObject.SetActive(false);
         if (bgNormal) bgNormal.sprite = Resources.Load<Sprite>("Art/bg_classroom");
         if (bgGray) { bgGray.sprite = null; bgGray.color = Color.clear; }
         if (fog) fog.color = Color.clear;
@@ -285,7 +326,7 @@ public class VNEngine : MonoBehaviour
     // ---------- 主流程 ----------
     void Next()
     {
-        hintText.gameObject.SetActive(false);
+        if (hintText) hintText.gameObject.SetActive(false);
         while (pc < cmds.Count)
         {
             Cmd c = cmds[pc++];
@@ -318,10 +359,20 @@ public class VNEngine : MonoBehaviour
     {
         ended = true;
         typing = waiting = holding = false;
-        hintText.gameObject.SetActive(true);
-        hintText.text = "— 完 —";
+        if (hintText)
+        {
+            if (hintText) hintText.gameObject.SetActive(true);
+            hintText.text = "— 完 —";
+        }
         SetRoot(choiceRoot, false);
         SetRoot(holdRoot, false);
+        if (!endRoot)
+        {
+            // 旧场景没有结尾菜单：停在提示文字，Esc 回主菜单无效时可按退出键 Alt+F4
+            if (hintText) hintText.text = "— 完 —\n按 Alt+F4 退出";
+            screen = ScreenMode.Ending;
+            return;
+        }
         SetRoot(dialogPanel.gameObject, false);
         SetRoot(endRoot, true);
         screen = ScreenMode.Ending;
@@ -389,7 +440,7 @@ public class VNEngine : MonoBehaviour
         wobbleT += Time.deltaTime * (1f + floatLevel * 3f);
         float a = bodyAlphaBase * (1f - floatLevel * 0.2f)
                   - Mathf.Max(0f, Mathf.Sin(wobbleT * 2.1f)) * 0.09f * floatLevel;
-        bodyText.color = new Color(bodyBase.r, bodyBase.g, bodyBase.b, Mathf.Clamp01(a));
+        if (bodyText) bodyText.color = new Color(bodyBase.r, bodyBase.g, bodyBase.b, Mathf.Clamp01(a));
         if (dialogPanel)
         {
             Color target = floatLevel > 0.35f ? panelColdRuntime : panelWarmRuntime;
@@ -417,9 +468,9 @@ public class VNEngine : MonoBehaviour
     {
         if (typer != null) StopCoroutine(typer);
         fullText = text;
-        speakerText.gameObject.SetActive(speaker.Length > 0);
-        speakerText.text = speaker;
-        bodyText.text = "";
+        if (speakerText) speakerText.gameObject.SetActive(speaker.Length > 0);
+        if (speakerText) speakerText.text = speaker;
+        if (bodyText) bodyText.text = "";
         typing = true;
         waiting = false;
         typer = StartCoroutine(TypeLine(text));
@@ -433,29 +484,29 @@ public class VNEngine : MonoBehaviour
         foreach (char ch in text)
         {
             sb.Append(ch);
-            bodyText.text = sb.ToString();
+            if (bodyText) bodyText.text = sb.ToString();
             float d = delay;
             if ("，。、？！…—".IndexOf(ch) >= 0) d += 0.12f / speed;
             yield return new WaitForSeconds(d);
         }
         typing = false;
         waiting = true;
-        hintText.gameObject.SetActive(true);
+        if (hintText) hintText.gameObject.SetActive(true);
     }
 
     void CompleteLine()
     {
         if (typer != null) StopCoroutine(typer);
-        bodyText.text = fullText;
+        if (bodyText) bodyText.text = fullText;
         typing = false;
         waiting = true;
-        hintText.gameObject.SetActive(true);
+        if (hintText) hintText.gameObject.SetActive(true);
     }
 
     // ---------- 命令 UI ----------
     void ShowTime(string t)
     {
-        timeText.gameObject.SetActive(true);
+        if (timeText) timeText.gameObject.SetActive(true);
         timeText.text = t;
         StartCoroutine(FadeIn(timeText, 0.85f));
     }
@@ -463,7 +514,7 @@ public class VNEngine : MonoBehaviour
     IEnumerator ShowTitle(string t)
     {
         Color c0 = chapterTitle.color;
-        chapterTitle.gameObject.SetActive(true);
+        if (chapterTitle) chapterTitle.gameObject.SetActive(true);
         chapterTitle.text = t;
         for (float f = 0; f < 1f; f += Time.deltaTime * 1.2f)
         {
@@ -477,7 +528,7 @@ public class VNEngine : MonoBehaviour
             yield return null;
         }
         chapterTitle.color = c0;
-        chapterTitle.gameObject.SetActive(false);
+        if (chapterTitle) chapterTitle.gameObject.SetActive(false);
     }
 
     IEnumerator FadeIn(Graphic g, float target)
@@ -492,6 +543,7 @@ public class VNEngine : MonoBehaviour
 
     void ShowChoices(string spec)
     {
+        if (!choiceRoot || !choiceButtonPrefab) { Next(); return; }
         choiceRoot.SetActive(true);
         foreach (Transform t in choiceRoot.transform) Destroy(t.gameObject);
         string[] opts = spec.Split('|');
@@ -518,6 +570,7 @@ public class VNEngine : MonoBehaviour
 
     void ShowHold(string text)
     {
+        if (!holdRoot || !holdRing || !holdLabel) { Next(); return; }
         holdRoot.SetActive(true);
         holdLabel.text = text + "\n（按住鼠标左键，直到圆环闭合）";
         holding = true;
@@ -565,7 +618,7 @@ public class VNEngine : MonoBehaviour
         floatLevel = Mathf.MoveTowards(floatLevel, floatTarget, Time.deltaTime * 0.3f);
         ApplyFloat();
 
-        if (Input.GetMouseButtonDown(0) && OverUI() && choiceRoot && !choiceRoot.activeSelf)
+        if (Input.GetMouseButtonDown(0) && OverUI() && (!choiceRoot || !choiceRoot.activeSelf))
             consumedFrameClick = true;
 
         if (screen == ScreenMode.Ending)
